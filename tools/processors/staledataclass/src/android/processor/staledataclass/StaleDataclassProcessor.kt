@@ -152,7 +152,11 @@ class StaleDataclassProcessor: AbstractProcessor() {
         val lastGenerated = annotationParams["time"] as Long
         val codegenVersion = annotationParams["codegenVersion"] as String
         val codegenMajorVersion = codegenVersion.substringBefore(".")
-        val sourceRelative = File(annotationParams["sourceFile"] as String)
+        var sourceRelativeStr = annotationParams["sourceFile"] as String
+	if (sourceRelativeStr.contains("com/android/server/pm/pkg/component")) {
+	 sourceRelativeStr = sourceRelativeStr.replace("services/core/java/com/android/server/pm", "core/java/com/android/internal/pm")
+	}
+	val sourceRelative = File(sourceRelativeStr)
 
         val lastGenInputSignatures = (annotationParams["inputSignatures"] as String).lines().toSet()
 
