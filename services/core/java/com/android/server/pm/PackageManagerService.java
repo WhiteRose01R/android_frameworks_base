@@ -3505,7 +3505,7 @@ public class PackageManagerService implements PackageSender, TestUtilityService 
     }
 
     private boolean clearApplicationUserDataLIF(@NonNull Computer snapshot, String packageName,
-            int userId) {
+            int userId, boolean restorePregrantedPermissions) {
         if (packageName == null) {
             Slog.w(TAG, "Attempt to delete null packageName.");
             return false;
@@ -3517,7 +3517,7 @@ public class PackageManagerService implements PackageSender, TestUtilityService 
             Slog.w(TAG, "Package named '" + packageName + "' doesn't exist.");
             return false;
         }
-        mPermissionManager.resetRuntimePermissions(pkg, userId);
+        mPermissionManager.resetRuntimePermissions(pkg, userId, restorePregrantedPermissions);
 
         mAppDataHelper.clearAppDataLIF(pkg, userId,
                 FLAG_STORAGE_DE | FLAG_STORAGE_CE | FLAG_STORAGE_EXTERNAL);
@@ -4835,7 +4835,8 @@ public class PackageManagerService implements PackageSender, TestUtilityService 
         @android.annotation.EnforcePermission(android.Manifest.permission.CLEAR_APP_USER_DATA)
         @Override
         public void clearApplicationUserData(final String packageName,
-                final IPackageDataObserver observer, final int userId) {
+                final IPackageDataObserver observer, final int userId,
+                boolean restorePregrantedPermissions) {
             clearApplicationUserData_enforcePermission();
 
             final int callingUid = Binder.getCallingUid();
@@ -4875,7 +4876,7 @@ public class PackageManagerService implements PackageSender, TestUtilityService 
                             /* waitAppKilled= */ true)) {
                         try (PackageManagerTracedLock installLock = mInstallLock.acquireLock()) {
                             succeeded = clearApplicationUserDataLIF(snapshotComputer(), packageName,
-                                    userId);
+                                    userId, restorePregrantedPermissions);
                         }
                         mInstantAppRegistry.deleteInstantApplicationMetadata(packageName, userId);
                         synchronized (mLock) {
@@ -5940,9 +5941,11 @@ public class PackageManagerService implements PackageSender, TestUtilityService 
                 return false;
             }
 
-            // Do not allow "android" is being disabled
-            if ("android".equals(packageName)) {
-                Slog.w(TAG, "Cannot hide package: android");
+            // Don't allow hiding "android" or SysUI as it makes device unusable.
+            if ("android".equals(packageName)
+                    || LocalServices.getService(PackageManagerInternal.class)
+                            .getSystemUiServiceComponent().getPackageName().equals(packageName)) {
+                Slog.w(TAG, "Cannot hide package: " + packageName);
                 return false;
             }
 

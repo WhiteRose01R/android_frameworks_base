@@ -165,6 +165,8 @@ public class CompanionDeviceManagerService extends SystemService {
         final UserManager userManager = context.getSystemService(UserManager.class);
         final PowerManagerInternal powerManagerInternal = LocalServices.getService(
                 PowerManagerInternal.class);
+        final NotificationManager notificationManager = context.getSystemService(
+                NotificationManager.class);
 
         final AssociationDiskStore associationDiskStore = new AssociationDiskStore();
         mAssociationStore = new AssociationStore(context, userManager, associationDiskStore);
@@ -188,7 +190,8 @@ public class CompanionDeviceManagerService extends SystemService {
 
         mDisassociationProcessor = new DisassociationProcessor(context, activityManager,
                 mAssociationStore, mPackageManagerInternal, mDevicePresenceProcessor,
-                mCompanionAppBinder, mSystemDataTransferRequestStore, mTransportManager);
+                mCompanionAppBinder, mSystemDataTransferRequestStore, mTransportManager,
+                notificationManager);
 
         mSystemDataTransferProcessor = new SystemDataTransferProcessor(this,
                 mPackageManagerInternal, mAssociationStore,
@@ -273,8 +276,6 @@ public class CompanionDeviceManagerService extends SystemService {
         for (ObservableUuid uuid : uuidsTobeObserved) {
             mObservableUuidStore.removeObservableUuid(userId, uuid.getUuid(), packageName);
         }
-
-        mCompanionAppBinder.onPackagesChanged(userId);
     }
 
     private void onPackageModifiedInternal(@UserIdInt int userId, @NonNull String packageName) {
@@ -284,8 +285,6 @@ public class CompanionDeviceManagerService extends SystemService {
             updateSpecialAccessPermissionForAssociatedPackage(association.getUserId(),
                     association.getPackageName());
         }
-
-        mCompanionAppBinder.onPackagesChanged(userId);
     }
 
     private void onPackageAddedInternal(@UserIdInt int userId, @NonNull String packageName) {

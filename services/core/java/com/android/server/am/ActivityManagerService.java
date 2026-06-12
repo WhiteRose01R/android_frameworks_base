@@ -744,7 +744,7 @@ public class ActivityManagerService extends IActivityManager.Stub
     /** Whether some specified important processes are allowed to use FIFO priority. */
     boolean mAllowSpecifiedFifoScheduling = true;
 
-    @GuardedBy("this")
+    @GuardedBy("mStrictModeCallbacks")
     private final SparseArray<IUnsafeIntentStrictModeCallback>
             mStrictModeCallbacks = new SparseArray<>();
 
@@ -3665,16 +3665,28 @@ public class ActivityManagerService extends IActivityManager.Stub
             FrameworkStatsLog.write(FrameworkStatsLog.APP_DIED, SystemClock.elapsedRealtime());
         }
     }
-
     @Override
     public boolean clearApplicationUserData(final String packageName, boolean keepState,
             final IPackageDataObserver observer, int userId) {
-        return clearApplicationUserData(packageName, keepState, /*isRestore=*/ false, observer,
-                userId);
+        return clearApplicationUserData(packageName, keepState, observer, userId, true);
+    }
+
+    @Override
+    public boolean clearApplicationUserDataWithoutPermissionReset(final String packageName,
+            boolean keepState, final IPackageDataObserver observer, int userId) {
+        return clearApplicationUserData(packageName, keepState, observer, userId, false);
     }
 
     private boolean clearApplicationUserData(final String packageName, boolean keepState,
-            boolean isRestore, final IPackageDataObserver observer, int userId) {
+            final IPackageDataObserver observer, int userId,
+            boolean restorePregrantedPermissions) {
+        return clearApplicationUserData(packageName, keepState, /*isRestore=*/ false, observer,
+                userId, restorePregrantedPermissions);
+    }
+
+    private boolean clearApplicationUserData(final String packageName, boolean keepState,
+            boolean isRestore, final IPackageDataObserver observer, int userId, 
+            boolean restorePregrantedPermissions) {
         enforceNotIsolatedCaller("clearApplicationUserData");
         int uid = Binder.getCallingUid();
         int pid = Binder.getCallingPid();
@@ -3710,7 +3722,8 @@ public class ActivityManagerService extends IActivityManager.Stub
                 } catch (RemoteException e) {
                     /* ignore */
                 }
-                permitted = (applicationInfo != null && applicationInfo.uid == uid) // own uid data
+                permitted = (applicationInfo != null && applicationInfo.uid == uid
+                        && !restorePregrantedPermissions) // own uid data, not changing pregrants
                         || (checkComponentPermission(permission.CLEAR_APP_USER_DATA,
                                 pid, uid, -1, true) == PackageManager.PERMISSION_GRANTED);
             }
@@ -3777,7 +3790,8 @@ public class ActivityManagerService extends IActivityManager.Stub
 
             try {
                 // Clear application user data
-                pm.clearApplicationUserData(packageName, localObserver, resolvedUserId);
+                pm.clearApplicationUserData(packageName, localObserver, resolvedUserId,
+                        restorePregrantedPermissions);
 
                 if (appInfo != null) {
                     // Restore already established notification state and permission grants,
@@ -9650,18 +9664,20 @@ public class ActivityManagerService extends IActivityManager.Stub
      * @param callback The binder used to communicate the violations.
      */
     @Override
-    public synchronized void registerStrictModeCallback(IBinder callback) {
-        int callingPid = Binder.getCallingPid();
-        mStrictModeCallbacks.put(callingPid,
-                IUnsafeIntentStrictModeCallback.Stub.asInterface(callback));
-        try {
-            callback.linkToDeath(() -> {
-                synchronized (ActivityManagerService.this) {
-                    mStrictModeCallbacks.remove(callingPid);
-                }
-            }, 0);
-        } catch (RemoteException e) {
-            mStrictModeCallbacks.remove(callingPid);
+    public void registerStrictModeCallback(IBinder callback) {
+        final int callingPid = Binder.getCallingPid();
+        synchronized (mStrictModeCallbacks) {
+            mStrictModeCallbacks.put(callingPid,
+                    IUnsafeIntentStrictModeCallback.Stub.asInterface(callback));
+            try {
+                callback.linkToDeath(() -> {
+                    synchronized (mStrictModeCallbacks) {
+                        mStrictModeCallbacks.remove(callingPid);
+                    }
+                }, 0);
+            } catch (RemoteException e) {
+                mStrictModeCallbacks.remove(callingPid);
+            }
         }
     }
 
@@ -20072,7 +20088,7 @@ public class ActivityManagerService extends IActivityManager.Stub
         public void triggerUnsafeIntentStrictMode(int callingPid, int type, Intent intent) {
             final IUnsafeIntentStrictModeCallback callback;
             final Intent i = intent.cloneFilter();
-            synchronized (ActivityManagerService.this) {
+            synchronized (mStrictModeCallbacks) {
                 callback = mStrictModeCallbacks.get(callingPid);
             }
             if (callback != null) {
@@ -20080,7 +20096,7 @@ public class ActivityManagerService extends IActivityManager.Stub
                     try {
                         callback.onUnsafeIntent(type, i);
                     } catch (RemoteException e) {
-                        synchronized (ActivityManagerService.this) {
+                        synchronized (mStrictModeCallbacks) {
                             mStrictModeCallbacks.remove(callingPid);
                         }
                     }
@@ -20127,7 +20143,7 @@ public class ActivityManagerService extends IActivityManager.Stub
         public boolean clearApplicationUserData(final String packageName, boolean keepState,
                 boolean isRestore, final IPackageDataObserver observer, int userId) {
             return ActivityManagerService.this.clearApplicationUserData(packageName, keepState,
-                    isRestore, observer, userId);
+                    isRestore, observer, userId, /* restorePregrantedPermissions */ true);
         }
 
         @Override
